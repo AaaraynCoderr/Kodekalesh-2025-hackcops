@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Assembly Line Quality Control</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    
+    <style>
+        /* Custom Styles for aesthetic enhancements */
+        .qc-container {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+        /* ENHANCEMENT: More vibrant background for the body */
+        body {
+            background-color: #f0f4f8; /* Light blueish gray */
+            font-family: "Inter", sans-serif;
+        }
+        .video-wrapper {
+            position: relative;
+            width: 100%;
+            height: 400px; 
+            background-color: #000;
+            overflow: hidden;
+            border-radius: 1.25rem; /* Increased rounding */
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4); /* Stronger shadow */
+            border: 3px solid #334155; /* Dark border for industrial look */
+        }
+        #cameraFeed, #detectionCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover; 
+            /* ENHANCEMENT: Subtle filter for a CCTV feel */
+            filter: grayscale(10%) contrast(110%);
+        }
+        #detectionCanvas {
+            z-index: 10;
+        }
+        #detectionLog {
+            height: 180px; /* Slightly taller log */
+            overflow-y: auto;
+            background-color: #ffffff; /* White background for log */
+            padding: 0.75rem;
+            border-radius: 0.75rem;
+            border: 2px solid #e0e7ff; /* Light blue border */
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.05); /* Inner shadow for depth */
+            font-size: 0.875rem;
+        }
+        .log-entry {
+            padding: 0.3rem 0; /* More padding */
+            border-bottom: 1px dashed #d1d5db; /* Dashed separator */
+            transition: background-color 0.2s;
+        }
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+        .log-defect { color: #dc2626; font-weight: 700; background-color: #fef2f2; } /* Red text, very light red background */
+        .log-pass { color: #059669; } /* Green text */
+        
+        /* Status Message Enhancements */
+        .status-initial { background-color: #e0f2fe; color: #0f766e; border: 2px solid #38bdf8; }
+        .status-running { background-color: #d1fae5; color: #047857; border: 2px solid #34d399; }
+        .status-alert { 
+            background-color: #fee2e2; 
+            color: #b91c1c; 
+            border: 2px solid #ef4444; 
+            animation: pulse-red 1s infinite;
+        }
+        
+        @keyframes pulse-red {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); }
+            70% { box-shadow: 0 0 0 15px rgba(239, 68, 68, 0); } /* Larger pulse */
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+
+        /* Gradient for Header Text (The most striking change) */
+        .gradient-text {
+            background-image: linear-gradient(to right, #1d4ed8, #3b82f6, #06b6d4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-fill-color: transparent;
+        }
+
+    </style>
+</head>
+<body class="bg-gray-50 p-4 md:p-8">
+    <div class="qc-container max-w-7xl mx-auto bg-white rounded-2xl shadow-2xl p-8 md:p-12"> <!-- Wider container, more padding, heavier shadow -->
+        <header class="text-center pb-6 border-b-4 border-blue-100"> <!-- Thicker separator -->
+            <h1 class="text-5xl font-extrabold mb-2 gradient-text">
+                <i class="fas fa-industry mr-3"></i> Assembly Line Quality Control
+            </h1>
+            <p class="text-gray-600 text-xl font-light">Real-time Automated Inspection System</p>
+        </header>
+
+        <div class="main-content flex flex-col lg:flex-row gap-8"> <!-- Increased gap -->
+            
+            <!-- Video Feed Box (Enhanced Dark Card) -->
+            <div class="video-feed-box lg:w-3/5 bg-gray-800 rounded-2xl p-6 shadow-2xl">
+                <h2 class="text-2xl font-bold mb-4 text-gray-100 border-b border-blue-500 pb-2">Live Camera Feed <i class="fas fa-video ml-2"></i></h2>
+                <div class="video-wrapper">
+                    <video id="cameraFeed" autoplay playsinline class="hidden"></video>
+                    <canvas id="detectionCanvas" class="hidden"></canvas>
+                    <div id="videoPlaceholder" class="flex items-center justify-center w-full h-full text-gray-400 text-center text-2xl animate-pulse">
+                        <i class="fas fa-camera-retro mr-3"></i> Camera Not Active. Click 'Start QC System'.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Status Panel (Elevated Card) -->
+            <div class="status-panel lg:w-2/5 p-6 bg-white rounded-2xl shadow-xl border border-blue-200">
+                <div class="status-header mb-6">
+                    <h2 class="text-2xl font-bold text-gray-800 border-b-2 border-blue-500 pb-2 mb-4">Inspection Status</h2>
+                    <div id="statusMessage" class="status-initial p-4 text-center text-lg font-extrabold rounded-xl shadow-md transition-colors duration-300">
+                        System Initialized. Ready to Start.
+                    </div>
+                </div>
+
+                <h3 class="text-xl font-bold text-gray-800 mt-6 mb-3 border-l-4 border-green-500 pl-3">Detection Log</h3>
+                <div id="detectionLog" class="mb-6">
+                    <p class="log-entry text-gray-600">System Ready.</p>
+                </div>
+
+                <!-- Stats (Highlighted) -->
+                <div class="stats bg-blue-50 p-4 rounded-xl border-2 border-blue-300 shadow-inner">
+                    <div class="flex justify-between items-center mb-2">
+                        <p class="text-lg font-medium text-gray-700">Total Items Inspected:</p>
+                        <span id="totalCount" class="text-3xl text-blue-700 font-extrabold">0</span>
+                    </div>
+                    <div class="flex justify-between items-center pt-2 border-t border-blue-200 defect-stat">
+                        <p class="text-lg font-medium text-gray-700">Defects Detected:</p>
+                        <span id="defectCount" class="text-3xl text-red-600 font-extrabold">0</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls (Stylized Buttons) -->
+        <div class="controls flex justify-center gap-6 pt-8 border-t border-gray-200">
+            <button id="startButton" class="flex items-center px-8 py-3 bg-green-600 hover:bg-green-700 text-white text-lg font-bold rounded-full shadow-2xl shadow-green-400/50 transition duration-300 ease-in-out transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed">
+                <i class="fas fa-play mr-2"></i> Start QC System
+            </button>
+            <button id="stopButton" disabled class="flex items-center px-8 py-3 bg-red-600 hover:bg-red-700 text-white text-lg font-bold rounded-full shadow-2xl shadow-red-400/50 transition duration-300 ease-in-out transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed">
+                <i class="fas fa-stop mr-2"></i> Stop QC System
+            </button>
+        </div>
+        
+        <!-- Custom Modal for Alerts/Errors -->
+        <div id="alertModal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50">
+            <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full">
+                <h3 id="alertTitle" class="text-xl font-bold text-red-600 mb-4">Error</h3>
+                <p id="alertMessage" class="mb-4 text-gray-700"></p>
+                <button onclick="document.getElementById('alertModal').classList.add('hidden')" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-full transition duration-300">
+                    OK
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Firebase Setup (MANDATORY GLOBALS) ---
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+
+        let db, auth, userId;
+        setLogLevel('debug'); // Enable detailed Firebase logging
+
+        async function initializeFirebase() {
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+                // Sign in using the provided token or anonymously
+                if (typeof __initial_auth_token !== 'undefined') {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                // Listen for auth state change to set the userId
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        console.log("Firebase initialized and user signed in. User ID:", userId);
+                        // In a real app, you would start loading user-specific data here.
+                    } else {
+                        userId = null;
+                        console.warn("User signed out or failed to authenticate.");
+                    }
+                });
+
+            } catch (error) {
+                console.error("Error initializing Firebase or signing in:", error);
+                showAlert("System Error", "Could not initialize authentication or database. See console for details.");
+            }
+        }
+
+        // --- Utility Functions ---
+        function showAlert(title, message) {
+            const modal = document.getElementById('alertModal');
+            document.getElementById('alertTitle').textContent = title;
+            document.getElementById('alertMessage').textContent = message;
+            modal.classList.remove('hidden');
+        }
+
+        function updateLog(message, isDefect = false) {
+            const logElement = document.getElementById('detectionLog');
+            const newEntry = document.createElement('p');
+            const timestamp = new Date().toLocaleTimeString();
+            newEntry.className = 'log-entry';
+            newEntry.innerHTML = `<span class="text-gray-400 mr-2">[${timestamp}]</span> ${message}`;
+            
+            if (isDefect) {
+                newEntry.classList.add('log-defect');
+            } else {
+                newEntry.classList.add('log-pass');
+            }
+            
+            logElement.prepend(newEntry);
+            // Limit log entries to 100 for performance
+            while (logElement.children.length > 100) {
+                logElement.lastElementChild.remove();
+            }
+        }
+
+
+        // --- Camera and QC Logic ---
+        const video = document.getElementById('cameraFeed');
+        const canvas = document.getElementById('detectionCanvas');
+        const videoPlaceholder = document.getElementById('videoPlaceholder');
+        const ctx = canvas.getContext('2d');
+        
+        let intervalId = null;
+        let totalCount = 0;
+        let defectCount = 0;
+
+        function updateStats() {
+            document.getElementById('totalCount').textContent = totalCount;
+            document.getElementById('defectCount').textContent = defectCount;
+        }
+
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: {
+                        facingMode: "environment" // Prefer rear camera on mobile
+                    }
+                });
+                
+                // Camera successfully accessed
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    video.play();
+                    // Set canvas size to match video size
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    video.classList.remove('hidden');
+                    canvas.classList.remove('hidden');
+                    videoPlaceholder.classList.add('hidden');
+                    console.log("Camera started and ready.");
+                };
+                return true;
+
+            } catch (error) {
+                console.error("Error accessing camera:", error);
+                showAlert("Camera Access Denied", "Could not access the camera. Please ensure camera permissions are granted and the page is served over HTTPS (or on localhost).");
+                return false;
+            }
+        }
+
+        function mockDetectionCycle() {
+            // 1. Draw video frame to canvas (for visual feedback/future image processing)
+            if (!video.paused && !video.ended) {
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            }
+
+            // 2. Mock Defect Detection
+            const isDefect = Math.random() < 0.2; // 20% chance of defect
+
+            totalCount++;
+            const statusMessage = document.getElementById('statusMessage');
+
+            if (isDefect) {
+                defectCount++;
+                updateLog(`ITEM #${totalCount}: **DEFECT DETECTED** (Type: Misalignment)`, true);
+                statusMessage.textContent = "DEFECT ALERT! Line Halted.";
+                statusMessage.className = 'status-alert p-4 text-center text-lg font-extrabold rounded-xl shadow-md transition-colors duration-300';
+            } else {
+                updateLog(`ITEM #${totalCount}: Quality Check **PASS**`, false);
+                statusMessage.textContent = "QC Running Smoothly.";
+                statusMessage.className = 'status-running p-4 text-center text-lg font-extrabold rounded-xl shadow-md transition-colors duration-300';
+            }
+            updateStats();
+        }
+
+        async function startQCSystem() {
+            document.getElementById('startButton').disabled = true;
+            document.getElementById('statusMessage').textContent = "Starting Camera...";
+
+            const cameraStarted = await startCamera();
+
+            if (cameraStarted) {
+                // Start the mock detection loop
+                intervalId = setInterval(mockDetectionCycle, 2000); // Check every 2 seconds
+                
+                document.getElementById('stopButton').disabled = false;
+                document.getElementById('statusMessage').textContent = "QC Running Smoothly.";
+                document.getElementById('statusMessage').className = 'status-running p-4 text-center text-lg font-extrabold rounded-xl shadow-md transition-colors duration-300';
+                updateLog("QC System Activated.");
+            } else {
+                 document.getElementById('startButton').disabled = false;
+                 document.getElementById('statusMessage').textContent = "Camera Failed to Start. System Idle.";
+                 document.getElementById('statusMessage').className = 'status-initial p-4 text-center text-lg font-extrabold rounded-xl shadow-md transition-colors duration-300';
+            }
+        }
+
+        function stopQCSystem() {
+            clearInterval(intervalId);
+            intervalId = null;
+
+            // Stop the camera stream
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+            }
+
+            video.classList.add('hidden');
+            canvas.classList.add('hidden');
+            videoPlaceholder.classList.remove('hidden');
+            
+            document.getElementById('stopButton').disabled = true;
+            document.getElementById('startButton').disabled = false;
+            document.getElementById('statusMessage').textContent = "System Stopped. Ready to Start.";
+            document.getElementById('statusMessage').className = 'status-initial p-4 text-center text-lg font-extrabold rounded-xl shadow-md transition-colors duration-300';
+            updateLog("QC System Halted.");
+        }
+
+
+        // --- Event Listeners and Initialization ---
+        window.onload = function () {
+            initializeFirebase();
+            document.getElementById('startButton').addEventListener('click', startQCSystem);
+            document.getElementById('stopButton').addEventListener('click', stopQCSystem);
+            updateStats(); // Initialize display stats to 0
+        }
+    </script>
+</body>
+</html>
