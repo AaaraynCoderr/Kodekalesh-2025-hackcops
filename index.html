@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Assembly Line Quality Control</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-100 p-8">
+
+    <h1 class="text-4xl font-bold text-center mb-8">AI Assembly Line Quality Control</h1>
+
+    <div class="max-w-5xl mx-auto bg-white shadow-xl rounded-xl p-8">
+
+        <!-- Video Preview -->
+        <div class="relative border rounded-xl overflow-hidden">
+            <video id="cameraFeed" autoplay playsinline class="w-full"></video>
+            <canvas id="detectionCanvas" class="absolute top-0 left-0"></canvas>
+        </div>
+
+        <div class="flex justify-center gap-4 mt-6">
+            <button id="startButton" class="bg-green-600 text-white px-6 py-3 rounded-lg">Start QC</button>
+            <button id="stopButton" class="bg-red-600 text-white px-6 py-3 rounded-lg" disabled>Stop</button>
+        </div>
+
+        <h2 class="text-2xl font-bold mt-8">Detection Log</h2>
+        <div id="logBox" class="bg-gray-50 h-48 overflow-y-auto border p-4 rounded-lg"></div>
+
+    </div>
+
+<script>
+const video = document.getElementById("cameraFeed");
+const canvas = document.getElementById("detectionCanvas");
+const ctx = canvas.getContext("2d");
+let intervalId = null;
+
+function log(text) {
+    const box = document.getElementById("logBox");
+    box.innerHTML += `<p>${text}</p>`;
+    box.scrollTop = box.scrollHeight;
+}
+
+async function startCamera() {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    video.srcObject = stream;
+
+    await new Promise(r => video.onloadedmetadata = r);
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    return true;
+}
+
+async function captureFrame() {
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    return new Promise(resolve => {
+        canvas.toBlob(blob => resolve(blob), "image/jpeg");
+    });
+}
+
+async function sendToBackend(blob) {
+    const formData = new FormData();
+    formData.append("file", blob, "frame.jpg");
+
+    const res = await fetch("http://localhost:8000/detect", {
+        method: "POST",
+        body: formData
+    });
+
+    return res.json();
+}
+
+function drawBoxes(detections) {
+    ctx.lineWidth = 4;
+    ctx.font = "22px Arial";
+
+    detections.forEach(det => {
+        ctx.strokeStyle = "red";
+        ctx.fillStyle = "red";
+
+        ctx.strokeRect(det.x1, det.y1, det.x2-det.x1, det.y2-det.y1);
+        ctx.fillText(det.class, det.x1, det.y1 - 5);
+    });
+}
+
+async function qcLoop() {
+    const frame = await captureFrame();
+    const result = await sendToBackend(frame);
+
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height); 
+    drawBoxes(result.boxes);
+
+    log(`Status: ${result.status}`);
+}
+
+document.getElementById("startButton").onclick = async () => {
+    await startCamera();
+    intervalId = setInterval(qcLoop, 2000);
+    document.getElementById("stopButton").disabled = false;
+};
+
+document.getElementById("stopButton").onclick = () => {
+    clearInterval(intervalId);
+    intervalId = null;
+
+    const tracks = video.srcObject.getTracks();
+    tracks.forEach(t => t.stop());
+};
+
+</script>
+</body>
+</html>
